@@ -44,7 +44,7 @@ W2 , W3 = 0.5*np.random.normal(size=(Number_of_Neurons_in_Hidden_Layer,1)) , 0.5
 b2 , b3 = 0.5*np.random.normal(size=(Number_of_Neurons_in_Hidden_Layer,1)) , 0.5*np.random.normal(size=(1,1))
 
 eta = 0.05
-Niter = 10**4
+Niter = 10**6
 
 costs = np.zeros(Niter)
 #________________________________________
