@@ -2,6 +2,7 @@
 #Library
 import numpy as np
 import matplotlib.pyplot as plt 
+from scipy.integrate import quad
 from tqdm import tqdm
 
 #________________________________________
@@ -13,6 +14,22 @@ def activation(z):
 def derivative(z):
     return np.where(z>0,1,0) #this is for ReLU 
     #return activation(z) * (1 - activation(z)) # This is for Sigmoid
+#________________________________________
+# Define the basis function with parameters (weights and bias)
+def phi(x, w, b, index): # Added 'index' argument
+    if index == 0:
+        return 1  # Return 1 for the basis function i,j = 0
+    else:
+        return max(0, (np.dot(w, x) + b) )# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
+
+# Define the inner product of two basis functions over the domain Omega
+def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
+    # Define the integrand as the product of two ReLU-activated basis functions
+    integrand = lambda x: phi(x, W2_i, b2_i, i) * phi(x, W2_j, b2_j, j) # Pass i, j to phi
+    
+    # Compute the integral over the specified domain
+    result, _ = quad(integrand, domain[0], domain[1])
+    return result
 #________________________________________
 # Define Artificial Neural Network
 def neural_network(x, W2, W3, b2, b3):
@@ -36,6 +53,7 @@ Number_of_data_point = 25  # Increase to 25-50 with respect to the domain.
 Number_of_Neurons_in_Hidden_Layer = 5  # The greater the number of neurons, the higher the accuracy, but with a tradeoff in time complexity.
 # X is the collection of x_i I want to work with, which must be uniformly distributed
 a, b = 0, 1  # Domain size
+domain = (a, b) 
 X = np.random.uniform(a, b, Number_of_data_point) #
 y = np.cos(np.pi * X)
 
@@ -49,19 +67,26 @@ print("Initialized W2:", W2)
 print("Initialized b2:", b2)
 # ________________________________________
 # Least-Squares Initialization for Outer Parameters
-# Compute phi_matrix (ReLU activations with an extra column for the constant term)
-phi_matrix = np.ones((Number_of_data_point, Number_of_Neurons_in_Hidden_Layer + 1))
-for j in range(Number_of_data_point):
-    x = X[j]
-    z2 = W2 * x + b2
-    
-    
-    a2 = activation(z2)
-    phi_matrix[j, 1:] = a2.flatten()  # Fill columns 1 onward with ReLU outputs
+# Compute phi_matrix (ReLU activations with an extra column for the constant term i,j = 0)
+M = np.zeros((Number_of_Neurons_in_Hidden_Layer+1, Number_of_Neurons_in_Hidden_Layer+1))
+# Populate the matrix M with the inner products
+for i in range(n+1):
+    for j in range(n+1):
+        # Use conditional indexing for W2 and b2
+        W2_i = W2[i-1] if i > 0 else None
+        b2_i = b2[i-1] if i > 0 else None
+        W2_j = W2[j-1] if j > 0 else None
+        b2_j = b2[j-1] if j > 0 else None
 
-# Compute Mass Matrix M and Vector F
-M = phi_matrix.T @ phi_matrix  # M is (n+1) x (n+1)
-F = phi_matrix.T @ y.reshape(-1, 1)  # F is (n+1) x 1
+        M[i, j] = inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j) # Pass i, j
+
+# Display the resulting matrix
+print("Matrix M:")
+print(M) # this checks out with the hand written calculations
+
+
+
+
 
 # Solve for W3 and b3
 params = np.linalg.solve(M, F)
