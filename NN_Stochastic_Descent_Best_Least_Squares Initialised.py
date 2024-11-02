@@ -17,10 +17,10 @@ def derivative(z):
 #________________________________________
 # Define the basis function with parameters (weights and bias)
 def phi(x, w, b, index): # Added 'index' argument
-    if index == 0:
-        return 1  # Return 1 for the basis function i,j = 0
+    if index == 0:  # Handle case for i,j = 0
+        return 1  # Return 1 for the constant basis function
     else:
-        return max(0, (np.dot(w, x) + b) )# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
+        return np.maximum(0, w * x + b)# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
 
 # Define the inner product of two basis functions over the domain Omega
 def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
@@ -30,6 +30,49 @@ def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
     # Compute the integral over the specified domain
     result, _ = quad(integrand, domain[0], domain[1])
     return result
+#________________________________________
+#Numerical Computation for the projected
+def composite_trapezium(domain,n,f):
+    """
+    To approximate the definite integral of the function f(x) over the interval [a,b]
+    using the composite trapezium rule with n subintervals.   
+    Returns
+    -------
+    integral_approx (float): The approximation of the integral 
+    """
+    
+    x = np.linspace(domain[0],domain[1],n+1) #Construct the quadrature points
+    h = (domain[1]-domain[0])/n
+
+    #Construct the quadrature weights: 
+    #These are the coefficient w_i of f(x_i) in the summation
+    weights = h*np.ones(n+1) 
+    weights[[0,-1]] = h/2
+
+    integral_approx = np.sum(f(x)*weights)
+
+    return integral_approx
+
+def romberg_integration(domain,n,f,level):
+    '''
+    To approximate the definite integral of the function f(x) over the interval [a,b]
+    using the Richardson extrapolation to CTR(n) with the specified level of extrapolation (level).
+
+    Returns
+    -------
+    integral_approx (float): This gives the approximated integral of the
+    function f(x) in the interval [a,b] for Romberg integration approximation based on
+    CTR(level*n). Giving R_(level,level).
+    '''
+    R = np.zeros((level+1,level+1))
+    for i in range(0,level+1): 
+        R[i,0]=composite_trapezium(domain,n,f)
+        n = 2*n
+        for j in range(1,i+1):
+            R[i,j] = (R[i,j-1]*4**(j) -R[i-1,j-1])/(4**(j) -1)
+
+    integral_approx = R[level-1,level-1]
+    return integral_approx
 #________________________________________
 # Define Artificial Neural Network
 def neural_network(x, W2, W3, b2, b3):
@@ -54,14 +97,13 @@ Number_of_Neurons_in_Hidden_Layer = 5  # The greater the number of neurons, the 
 # X is the collection of x_i I want to work with, which must be uniformly distributed
 a, b = 0, 1  # Domain size
 domain = (a, b) 
-X = np.random.uniform(a, b, Number_of_data_point) #
+X = np.linspace(a, b, Number_of_data_point) #
 y = np.cos(np.pi * X)
 
 # Initialize Inner Parameters
 W2 = np.ones((Number_of_Neurons_in_Hidden_Layer, 1))
-b2 = np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
+b2 = -1* np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
 # this was resulting in the randomness of the NN output. 
-
 
 print("Initialized W2:", W2)
 print("Initialized b2:", b2)
@@ -69,9 +111,18 @@ print("Initialized b2:", b2)
 # Least-Squares Initialization for Outer Parameters
 # Compute phi_matrix (ReLU activations with an extra column for the constant term i,j = 0)
 M = np.zeros((Number_of_Neurons_in_Hidden_Layer+1, Number_of_Neurons_in_Hidden_Layer+1))
-# Populate the matrix M with the inner products
-for i in range(n+1):
-    for j in range(n+1):
+F = np.zeros((Number_of_Neurons_in_Hidden_Layer+1,1 ))
+# Compuational parameters for the Romberg integration
+level = 5
+n = Number_of_data_point - 1
+
+# Populate the matrix M with the inner products and the projection vector F using the numerical compuation
+for i in range(Number_of_Neurons_in_Hidden_Layer+1):
+    if i == 0 : # Compute F[0] for the constant basis function (index = 0)
+        F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i], b2[i], i), level)
+    else :
+        F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i-1], b2[i-1], i), level)
+    for j in range(Number_of_Neurons_in_Hidden_Layer+1):
         # Use conditional indexing for W2 and b2
         W2_i = W2[i-1] if i > 0 else None
         b2_i = b2[i-1] if i > 0 else None
@@ -83,13 +134,12 @@ for i in range(n+1):
 # Display the resulting matrix
 print("Matrix M:")
 print(M) # this checks out with the hand written calculations
-
-
-
-
+# Display the resulting vector
+print("Vector F:")
+print(F) # this checks out with the hand written calculations
 
 # Solve for W3 and b3
-params = np.linalg.solve(M, F)
+params = np.linalg.pinv(M) @ F
 
 b3 = params[0:1]  # Initial bias for output layer
 W3 = params[1:]  # Initial weights for output layer
@@ -97,6 +147,9 @@ W3 = params[1:]  # Initial weights for output layer
 print("Initialized W3:", W3)
 print("Initialized b3:", b3)
 
+#________________________________________
+#Initial plot of the NN with the Best Least Squares where now the W2 = [1,...,1] and b2 = [0,..., 1] the initial parameters are now set with n number of 1's for W2 and a linspace of b2 with number of elements beign the number of neurons used in hidden layer.
+# The outer parameter is just solving for Mc = F where c = [b3, <- W3 -> ] and now plotting the initual plot for NN uisng the best parameters.
 
 x_plot = np.linspace(a, b, Number_of_data_point)
 y_plot = np.cos(np.pi *x_plot)
@@ -104,19 +157,19 @@ NN_plot = np.array([neural_network(xi, W2, W3, b2, b3)[0][0] for xi in x_plot])
 COST = cost(W2, W3, b2, b3)
 
 plt.plot(x_plot, y_plot, label="True function y = cos(pix)", color='blue')
-plt.plot(x_plot, NN_plot, label="Neural network approximation initual", color='red', linestyle='--')
+plt.plot(x_plot, NN_plot, label="Initual Neural Network Approx.", color='red', linestyle='--')
 plt.scatter(X, y, color='green', label="Data points")
 
 plt.xlabel("x")
 plt.ylabel("y")
-plt.title(f"Comparison of True Function and Neural Network Approximation\nCost: {COST:.6f}")
+plt.title(f"Initual Neural Network Approximation\nCost: {COST:.6f}")
 plt.legend(loc="best")
 plt.show()
 
 #________________________________________
 # Training Loop
 eta = 0.05
-Niter =  (1) 
+Niter =  (10**6) 
 costs = np.zeros(Niter)
 
 for i in tqdm(range(Niter), desc="Training Progress"):
