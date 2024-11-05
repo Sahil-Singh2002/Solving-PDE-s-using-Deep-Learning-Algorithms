@@ -172,7 +172,7 @@ plt.show()
 #________________________________________
 # Training Loop
 eta = 0.05
-Epoch =  (10**4) 
+Epoch =  (10**5) 
 costs = np.zeros(Epoch)
 
 for i in tqdm(range(Epoch), desc="Training Progress"):
