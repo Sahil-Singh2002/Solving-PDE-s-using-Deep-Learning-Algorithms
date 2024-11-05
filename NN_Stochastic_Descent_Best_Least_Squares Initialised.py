@@ -22,6 +22,8 @@ def phi(x, w, b, index): # Added 'index' argument
     else:
         return np.maximum(0, w * x + b)# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
 
+print("np.maximum(0, w * x + b)")
+
 # Define the inner product of two basis functions over the domain Omega
 def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
     # Define the integrand as the product of two ReLU-activated basis functions
@@ -88,21 +90,22 @@ def cost(W2, W3, b2, b3):
         x = X[j]
         a3 = neural_network(x, W2, W3, b2, b3)  
         costvec[j] = y[j] - a3[0][0]
-    costval = (abs(b - a) / Number_of_data_point) * np.linalg.norm(costvec) ** 2  
+    costval = np.abs((b - a) / Number_of_data_point) * np.linalg.norm(costvec) ** 2  
     return costval
 #________________________________________
 # Input for the NN
 Number_of_data_point = 25  # Increase to 25-50 with respect to the domain.
-Number_of_Neurons_in_Hidden_Layer = 5  # The greater the number of neurons, the higher the accuracy, but with a tradeoff in time complexity.
+Number_of_Neurons_in_Hidden_Layer = 3  # The greater the number of neurons, the higher the accuracy, but with a tradeoff in time complexity.
+print(f"Number of Neurons in Hidden layer = {Number_of_Neurons_in_Hidden_Layer}" )
 # X is the collection of x_i I want to work with, which must be uniformly distributed
 a, b = 0, 1  # Domain size
 domain = (a, b) 
-X = np.linspace(a, b, Number_of_data_point) #
+X = np.random.uniform(a, b, Number_of_data_point) # points need to be random but follows the uniform dist.
 y = np.cos(np.pi * X)
 
 # Initialize Inner Parameters
 W2 = np.ones((Number_of_Neurons_in_Hidden_Layer, 1))
-b2 = -1* np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
+b2 = -1* np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer, endpoint=False).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
 # this was resulting in the randomness of the NN output. 
 
 print("Initialized W2:", W2)
@@ -116,7 +119,7 @@ F = np.zeros((Number_of_Neurons_in_Hidden_Layer+1,1 ))
 level = 5
 n = Number_of_data_point - 1
 
-# Populate the matrix M with the inner products and the projection vector F using the numerical compuation
+# Populate the matrix M with the inner products and the projection vector F using the numerical computation
 for i in range(Number_of_Neurons_in_Hidden_Layer+1):
     if i == 0 : # Compute F[0] for the constant basis function (index = 0)
         F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i], b2[i], i), level)
@@ -139,7 +142,7 @@ print("Vector F:")
 print(F) # this checks out with the hand written calculations
 
 # Solve for W3 and b3
-params = np.linalg.pinv(M) @ F
+params = np.linalg.solve(M,F)
 
 b3 = params[0:1]  # Initial bias for output layer
 W3 = params[1:]  # Initial weights for output layer
@@ -169,10 +172,10 @@ plt.show()
 #________________________________________
 # Training Loop
 eta = 0.05
-Niter =  (10**6) 
-costs = np.zeros(Niter)
+Epoch =  (10**4) 
+costs = np.zeros(Epoch)
 
-for i in tqdm(range(Niter), desc="Training Progress"):
+for i in tqdm(range(Epoch), desc="Training Progress"):
     k = np.random.randint(0, Number_of_data_point)
     x = X[k]
 
@@ -188,21 +191,22 @@ for i in tqdm(range(Niter), desc="Training Progress"):
 
     # Update weights and biases
     b2 = b2 - eta * delta2
-    b3 = b3 - eta * delta3
+    b3 = b3 - eta * delta3 # get ride of this when null phi is ignored
 
     W2 = W2 - eta * delta2 * x
     W3 = W3 - eta * delta3 * a2
 
     # Compute and store cost
-    newcost = cost(W2, W3, b2, b3)
-    costs[i] = newcost
+    newcost = cost(W2, W3, b2, b3) 
+    costs[i] = (newcost)
 
 #________________________________________
 # Plotting the Cost Reduction Over Iterations
-plt.semilogy(range(Niter), costs)
-plt.xlabel("Iterations")
-plt.ylabel("Cost")
-plt.title("Cost Reduction Over Iterations")
+ite = [ i for i in range(Epoch)]
+plt.plot(ite, np.log(costs))
+plt.xlabel("Epoch")
+plt.ylabel("Log(Cost)")
+plt.title("Log(Cost) Reduction Over Epoch")
 plt.show()
 
 #________________________________________
