@@ -2,7 +2,7 @@
 #Library
 import numpy as np
 import matplotlib.pyplot as plt 
-from scipy.integrate import quad
+
 from tqdm import tqdm
 
 #________________________________________
@@ -20,18 +20,38 @@ def phi(x, w, b, index): # Added 'index' argument
     if index == 0:  # Handle case for i,j = 0
         return 1  # Return 1 for the constant basis function
     else:
-        return np.maximum(0, w * x + b)# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
+        return np.maximum(0, w * x - b)# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
 
-print("np.maximum(0, w * x + b)")
+print("np.maximum(0, w * x - b)")
 
 # Define the inner product of two basis functions over the domain Omega
+
+#______Need to get the generalised from in this  as we are not allowed to use from scipy.integrate import quad this library ______________________
+
+
 def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
-    # Define the integrand as the product of two ReLU-activated basis functions
-    integrand = lambda x: phi(x, W2_i, b2_i, i) * phi(x, W2_j, b2_j, j) # Pass i, j to phi
+
+    #Diagonal elem.
+    if i == 0 and j == 0: #Case 0: i=j = 0
+        result = domain[1] - domain[0]
+    elif i == j: #Case 1: i=j, for i = 1,2,...,n
+        result = ( domain[1] - b2_i )**3 / 3
+    #The 0th coloumn/row with the i/j = 1,2,...,n
+    elif j == 0 and i!= 0: #Case 2
+        result = ( domain[1] - b2_i )**2 / 2
+    elif i == 0 and j!= 0:
+        result = ( domain[1] - b2_j )**2 / 2
+    #The inner Mass matrix
+    elif i > j:
+        result = 1/3 *(domain[1]**3 - b2_i**3) - 1/2 *(domain[1]**2 - b2_i**2)*(b2_i + b2_j) + b2_i*b2_j*(domain[1] - b2_i) 
+    elif j > i:
+        result = 1/3 *(domain[1]**3 - b2_j**3) - 1/2 *(domain[1]**2 - b2_j**2)*(b2_i + b2_j) + b2_i*b2_j*(domain[1] - b2_j) 
     
-    # Compute the integral over the specified domain
-    result, _ = quad(integrand, domain[0], domain[1])
     return result
+
+#______Need to get the generalised from in this  as we are not allowed to use from scipy.integrate import quad this library ______________________
+
+
 #________________________________________
 #Numerical Computation for the projected
 def composite_trapezium(domain,n,f):
@@ -105,7 +125,7 @@ y = np.cos(np.pi * X)
 
 # Initialize Inner Parameters
 W2 = np.ones((Number_of_Neurons_in_Hidden_Layer, 1))
-b2 = -1* np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer, endpoint=False).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
+b2 = np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer, endpoint=False).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
 # this was resulting in the randomness of the NN output. 
 
 print("Initialized W2:", W2)
@@ -156,8 +176,8 @@ print("Initialized b3:", b3)
 
 x_plot = np.linspace(a, b, Number_of_data_point)
 y_plot = np.cos(np.pi *x_plot)
-NN_plot = np.array([neural_network(xi, W2, W3, b2, b3)[0][0] for xi in x_plot])
-COST = cost(W2, W3, b2, b3)
+NN_plot = np.array([neural_network(xi, W2, W3, -b2, b3)[0][0] for xi in x_plot])
+COST = cost(W2, W3, -b2, b3)
 
 plt.plot(x_plot, y_plot, label="True function y = cos(pix)", color='blue')
 plt.plot(x_plot, NN_plot, label="Initual Neural Network Approx.", color='red', linestyle='--')
@@ -172,7 +192,7 @@ plt.show()
 #________________________________________
 # Training Loop
 eta = 0.05
-Epoch =  (10**5) 
+Epoch =  (10**6) 
 costs = np.zeros(Epoch)
 
 for i in tqdm(range(Epoch), desc="Training Progress"):
