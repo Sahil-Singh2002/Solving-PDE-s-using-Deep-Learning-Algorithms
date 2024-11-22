@@ -1,0 +1,98 @@
+def MassMatrix(W2_i, b2_i, W2_j, b2_j, domain, i, j):
+    """
+    Computes the mass matrix entry M[i, j] based on basis function interaction.
+
+    Parameters:
+    - W2_i, W2_j: Weights for basis functions (currently unused in this logic).
+    - b2_i, b2_j: Biases for the i-th and j-th basis functions.
+    - domain: Tuple (a, b) defining the domain of integration.
+    - i, j: Indices of the basis functions.
+
+    Returns:
+    - result: The mass matrix entry M[i, j].
+    """
+    b = domain[1]
+    a = domain[0]
+    bi = b2_i
+    bj = b2_j
+
+    # Leverage symmetry: Always compute for i >= j
+    if i < j:
+        return MassMatrix(W2_j, b2_j, W2_i, b2_i, domain, j, i)
+
+    # Case 0: Diagonal element (i = j = 0)
+    if i == 0 and j == 0:
+        result = b - a
+
+    # Case 1: Interaction with the constant basis function (j = 0, i > 0)
+    elif j == 0 and i != 0:
+        if a < bi < b:
+            result = (b - bi) ** 2 / 2
+        elif bi <= a:
+            result = (b - a) * (a + b - 2 * bi) / 2
+        elif bi >= b:
+            result = 0
+
+    # Case 2: Diagonal elements for ReLU basis functions (i = j, i > 0)
+    elif i == j:
+        if a < bi < b:
+            result = (b - bi) ** 3 / 3
+        elif bi <= a:
+            result = ( (b-bi)**3 - (a-bi)**3 )/3 
+        elif bi >= b:
+            result = (b - a) * (a ** 2 + a * b + b ** 2 - 3 * bi * (a + b) + 3 * bi ** 2)
+
+    # Case 3: Inner mass matrix for i > j (i, j > 0)
+    elif i > j:
+        if b < bi or b < bj:
+            result = 0
+        elif (a < bj < bi < b) or (bj <= a < bi < b):
+            result = (b - bi) ** 2 * (2 * b + bi - 3 * bj) / 6
+        elif (a < bi < bj < b) or (bi <= a < bj < b):
+            result = (b - bj) ** 2 * (2 * b + bj - 3 * bi) / 6
+        elif (bi < bj < a < b) or (bj < bi < a < b):
+            result = (b - a) * ((a + b) * (2 * (a + b) - 3 * (bi + bj)) + 6 * bi * bj) / 6
+
+    # Default case: Handle unexpected scenarios
+    else:
+        raise ValueError(f"Unexpected case for indices i={i}, j={j}, bi={bi}, bj={bj}.")
+
+    return result
+
+
+def Deriv_MassMatrix(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
+    b = domain[1]
+    a = domain[0]
+    bi = b2_i
+    bj = b2_j
+    #Diagonal elem.
+    if i == 0 and j == 0: #Case 0: i=j = 0
+        result = 0
+    #The 0th coloumn/row with the i/j = 1,2,...,n
+    elif j == 0 and i!= 0: #Case 2
+        if a < bi < b :
+            result = -b + bi
+        elif bi < a and bi < b :
+            result = -b+a
+        elif a < bi and b < bi:
+            result = 0 
+    #Case 1: i=j, for i = 1,2,...,n
+    elif i == j:
+        if a < bi < b :
+            result = -( b - bi )**2
+        elif bi < a and bi < b :
+            result = -(b-bi)**2 + (a-bi)**2
+        elif a < bi and b < bi:
+            result = 0
+   #The inner Mass matrix
+    elif i > j :
+       if b < bi or b < bj :
+           result = 0
+       elif (a < bj and bj < bi and bi <b) or (bj < a and a < bi and bi <b):
+           result = (b - bi)**2 /6 -(b-bi)*(2*b + bi -3*bj)
+       elif (a < bi and bi < bj and bj <b) or (bi < a and a < bj and bj <b):
+           result = -(b - bj)**2 /2
+       elif (bi < bj and bj < a and a < b) or (bj < bi and bi < a and a < b):
+           result = (b-a)*(2*bj -a-b)
+           
+    return result
