@@ -1,188 +1,113 @@
-#________________________________________
-#Library
 import numpy as np
 import matplotlib.pyplot as plt
 
-#________________________________________
-#Sigmoid activation
+# Activation (ReLU)
 def activation(z):
-    return np.where(z>=0,z,0) #this is for ReLU
-    #return 1 / (1 + np.exp(-z)) # This is for Sigmoid
+    return np.where(z >= 0, z, 0)
 
-def derivative(z):
-    return np.where(z>0,1,0) #this is for ReLU 
-    #return activation(z) * (1 - activation(z)) # This is for Sigmoid
-#________________________________________
-# Define the basis function with parameters (weights and bias)
-def phi(x, w, b, index): # Added 'index' argument
-    if index == 0:  # Handle case for i,j = 0
-        return 1  # Return 1 for the constant basis function
+# Basis function
+def phi(x, w, b, index):
+    if index == 0:
+        return 1
     else:
-        return np.maximum(0, w * x - b)# in the paper ReLU(wi *x - bi) for the basis function i,j = 1,...,n
+        return np.maximum(0, w * x - b)
 
-print("np.maximum(0, w * x - b)")
-
-# Define the inner product of two basis functions over the domain Omega
-
-#______Need to get the generalised from in this  as we are not allowed to use from scipy.integrate import quad this library ______________________
-
-
-def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j): # Added i, j arguments
-
-    #Diagonal elem.
-    if i == 0 and j == 0: #Case 0: i=j = 0
-        result = domain[1] - domain[0]
-    elif i == j: #Case 1: i=j, for i = 1,2,...,n
-        result = ( domain[1] - b2_i )**3 / 3
-    #The 0th coloumn/row with the i/j = 1,2,...,n
-    elif j == 0 and i!= 0: #Case 2
-        result = ( domain[1] - b2_i )**2 / 2
-    elif i == 0 and j!= 0:
-        result = ( domain[1] - b2_j )**2 / 2
-    #The inner Mass matrix
+# Inner product without scipy
+def inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j):
+    if i == 0 and j == 0:
+        return domain[1] - domain[0]
+    elif i == j:
+        return (domain[1] - b2_i)**3 / 3
+    elif j == 0 and i != 0:
+        return (domain[1] - b2_i)**2 / 2
+    elif i == 0 and j != 0:
+        return (domain[1] - b2_j)**2 / 2
     elif i > j:
-        result = 1/3 *(domain[1]**3 - b2_i**3) - 1/2 *(domain[1]**2 - b2_i**2)*(b2_i + b2_j) + b2_i*b2_j*(domain[1] - b2_i) 
+        return (1/3)*(domain[1]**3 - b2_i**3) - (1/2)*(domain[1]**2 - b2_i**2)*(b2_i + b2_j) + b2_i*b2_j*(domain[1] - b2_i)
     elif j > i:
-        result = 1/3 *(domain[1]**3 - b2_j**3) - 1/2 *(domain[1]**2 - b2_j**2)*(b2_i + b2_j) + b2_i*b2_j*(domain[1] - b2_j) 
-    
-    return result
+        return (1/3)*(domain[1]**3 - b2_j**3) - (1/2)*(domain[1]**2 - b2_j**2)*(b2_i + b2_j) + b2_i*b2_j*(domain[1] - b2_j)
 
-#______Need to get the generalised from in this  as we are not allowed to use from scipy.integrate import quad this library ______________________
+# Composite trapezium
+def composite_trapezium(domain, n, f):
+    x = np.linspace(domain[0], domain[1], n + 1)
+    h = (domain[1] - domain[0]) / n
+    weights = h * np.ones(n + 1)
+    weights[[0, -1]] = h / 2
+    return np.sum(f(x) * weights)
 
+# Romberg integration
+def romberg_integration(domain, n, f, level):
+    R = np.zeros((level + 1, level + 1))
+    for i in range(level + 1):
+        R[i, 0] = composite_trapezium(domain, n, f)
+        n *= 2
+        for j in range(1, i + 1):
+            R[i, j] = (R[i, j - 1] * 4**j - R[i - 1, j - 1]) / (4**j - 1)
+    return R[level - 1, level - 1]
 
-#________________________________________
-#Numerical Computation for the projected
-def composite_trapezium(domain,n,f):
-    """
-    To approximate the definite integral of the function f(x) over the interval [a,b]
-    using the composite trapezium rule with n subintervals.   
-    Returns
-    -------
-    integral_approx (float): The approximation of the integral 
-    """
-    
-    x = np.linspace(domain[0],domain[1],n+1) #Construct the quadrature points
-    h = (domain[1]-domain[0])/n
-
-    #Construct the quadrature weights: 
-    #These are the coefficient w_i of f(x_i) in the summation
-    weights = h*np.ones(n+1) 
-    weights[[0,-1]] = h/2
-
-    integral_approx = np.sum(f(x)*weights)
-
-    return integral_approx
-
-def romberg_integration(domain,n,f,level):
-    '''
-    To approximate the definite integral of the function f(x) over the interval [a,b]
-    using the Richardson extrapolation to CTR(n) with the specified level of extrapolation (level).
-
-    Returns
-    -------
-    integral_approx (float): This gives the approximated integral of the
-    function f(x) in the interval [a,b] for Romberg integration approximation based on
-    CTR(level*n). Giving R_(level,level).
-    '''
-    R = np.zeros((level+1,level+1))
-    for i in range(0,level+1): 
-        R[i,0]=composite_trapezium(domain,n,f)
-        n = 2*n
-        for j in range(1,i+1):
-            R[i,j] = (R[i,j-1]*4**(j) -R[i-1,j-1])/(4**(j) -1)
-
-    integral_approx = R[level-1,level-1]
-    return integral_approx
-#________________________________________
-# Define Artificial Neural Network
+# Neural network
 def neural_network(x, W2, W3, b2, b3):
-    z2 = W2 * x + b2 # should be W2.T x + b2 once we are dealing with PDE
+    z2 = W2 * x + b2
     a2 = activation(z2)
-    a3 = W3.T @ a2 + b3 # No activation function implemented as this is a regularization problem, not classification.
+    a3 = W3.T @ a2 + b3
     return a3
-#________________________________________
-# Define the Stochastic Descent Method
-def cost(W2, W3, b2, b3):
-    costvec = np.zeros(Number_of_data_point)
-    for j in range(Number_of_data_point):
-        x = X[j]
-        a3 = neural_network(x, W2, W3, b2, b3)  
-        costvec[j] = y[j] - a3[0][0]
-    costval = np.abs((b - a) / Number_of_data_point) * np.linalg.norm(costvec) ** 2  
-    return costval
-#________________________________________
-# Input for the NN
-Number_of_data_point = 25  # Increase to 25-50 with respect to the domain.
-Number_of_Neurons_in_Hidden_Layer = 3  # The greater the number of neurons, the higher the accuracy, but with a tradeoff in time complexity.
-print(f"Number of Neurons in Hidden layer = {Number_of_Neurons_in_Hidden_Layer}" )
-# X is the collection of x_i I want to work with, which must be uniformly distributed
-a, b = 0, 1  # Domain size
-domain = (a, b) 
-X = np.random.uniform(a, b, Number_of_data_point) # points need to be random but follows the uniform dist.
-y = np.cos(np.pi * X)
 
-# Initialize Inner Parameters
-W2 = np.ones((Number_of_Neurons_in_Hidden_Layer, 1))
-b2 = np.linspace(a,b,Number_of_Neurons_in_Hidden_Layer, endpoint=False).reshape(-1,1) #this should be linspace where the points should be uniformely spaced
-# this was resulting in the randomness of the NN output. 
+# Cost function
+def compute_cost(M, F, b3, W3, domain, n, level):
+    c = np.vstack((b3, W3))
+    term1 = float(c.T @ M @ c)
+    term2 = -2 * float(c.T @ F)
+    integrand = lambda x: np.cos(np.pi * x)**2
+    l2_norm_squared = romberg_integration(domain, n, integrand, level)
+    return term1 + term2 + l2_norm_squared
 
-print("Initialized W2:", W2)
-print("Initialized b2:", b2)
-# ________________________________________
-# Least-Squares Initialization for Outer Parameters
-# Compute phi_matrix (ReLU activations with an extra column for the constant term i,j = 0)
-M = np.zeros((Number_of_Neurons_in_Hidden_Layer+1, Number_of_Neurons_in_Hidden_Layer+1))
-F = np.zeros((Number_of_Neurons_in_Hidden_Layer+1,1 ))
-# Compuational parameters for the Romberg integration
+# Main parameters
+domain = (0, 1)
+Number_of_data_point = 50
+x_plot = np.linspace(domain[0], domain[1], Number_of_data_point)
+y_plot = np.cos(np.pi * x_plot)
 level = 5
 n = Number_of_data_point - 1
 
-# Populate the matrix M with the inner products and the projection vector F using the numerical computation
-for i in range(Number_of_Neurons_in_Hidden_Layer+1):
-    if i == 0 : # Compute F[0] for the constant basis function (index = 0)
-        F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i], b2[i], i), level)
-    else :
-        F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i-1], b2[i-1], i), level)
-    for j in range(Number_of_Neurons_in_Hidden_Layer+1):
-        # Use conditional indexing for W2 and b2
-        W2_i = W2[i-1] if i > 0 else None
-        b2_i = b2[i-1] if i > 0 else None
-        W2_j = W2[j-1] if j > 0 else None
-        b2_j = b2[j-1] if j > 0 else None
+neuron_settings = [3, 5, 8, 10]
 
-        M[i, j] = inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j) # Pass i, j
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+axes = axes.flatten()
 
-# Display the resulting matrix
-print("Matrix M:")
-print(M) # this checks out with the hand written calculations
-# Display the resulting vector
-print("Vector F:")
-print(F) # this checks out with the hand written calculations
+for idx, num_neurons in enumerate(neuron_settings):
+    W2 = np.ones((num_neurons, 1))
+    b2 = np.linspace(domain[0], domain[1], num_neurons, endpoint=False).reshape(-1, 1)
 
-# Solve for W3 and b3
-params = np.linalg.solve(M,F)
+    M = np.zeros((num_neurons + 1, num_neurons + 1))
+    F = np.zeros((num_neurons + 1, 1))
 
-b3 = params[0:1]  # Initial bias for output layer
-W3 = params[1:]  # Initial weights for output layer
+    for i in range(num_neurons + 1):
+        if i == 0:
+            F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i], b2[i], i), level)
+        else:
+            F[i] = romberg_integration(domain, n, lambda x: np.cos(np.pi * x) * phi(x, W2[i - 1], b2[i - 1], i), level)
 
-print("Initialized W3:", W3)
-print("Initialized b3:", b3)
+        for j in range(num_neurons + 1):
+            W2_i = W2[i - 1] if i > 0 else None
+            b2_i = b2[i - 1] if i > 0 else None
+            W2_j = W2[j - 1] if j > 0 else None
+            b2_j = b2[j - 1] if j > 0 else None
+            M[i, j] = inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j)
 
-#________________________________________
-#Initial plot of the NN with the Best Least Squares where now the W2 = [1,...,1] and b2 = [0,..., 1] the initial parameters are now set with n number of 1's for W2 and a linspace of b2 with number of elements beign the number of neurons used in hidden layer.
-# The outer parameter is just solving for Mc = F where c = [b3, <- W3 -> ] and now plotting the initual plot for NN uisng the best parameters.
+    params = np.linalg.solve(M, F)
+    b3 = params[0:1]
+    W3 = params[1:]
 
-x_plot = np.linspace(a, b, Number_of_data_point)
-y_plot = np.cos(np.pi *x_plot)
-NN_plot = np.array([neural_network(xi, W2, W3, -b2, b3)[0][0] for xi in x_plot])
-COST = cost(W2, W3, -b2, b3)
+    NN_plot = np.array([neural_network(xi, W2, W3, -b2, b3)[0][0] for xi in x_plot])
+    cost_val = compute_cost(M, F, b3, W3, domain, n, level)
 
-plt.plot(x_plot, y_plot, label="True function y = cos(pix)", color='blue')
-plt.plot(x_plot, NN_plot, label="Initual Neural Network Approx.", color='red', linestyle='--')
-plt.scatter(X, y, color='green', label="Data points")
+    ax = axes[idx]
+    ax.plot(x_plot, y_plot, label="True function y = cos(πx)", color='blue')
+    ax.plot(x_plot, NN_plot, label="NN Approximation", color='red', linestyle='--')
+    ax.set_title(f"{num_neurons} Neurons — Cost: {cost_val:.6f}")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.legend()
 
-plt.xlabel("x")
-plt.ylabel("y")
-plt.title(f"Initual Neural Network Approximation\nCost: {COST:.6f}")
-plt.legend(loc="best")
+plt.tight_layout()
 plt.show()
