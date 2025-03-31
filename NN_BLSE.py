@@ -78,6 +78,10 @@ for idx, num_neurons in enumerate(neuron_settings):
     W2 = np.ones((num_neurons, 1))
     b2 = np.linspace(domain[0], domain[1], num_neurons, endpoint=False).reshape(-1, 1)
 
+    print(f"Number of neurons: {num_neurons}")
+    print(f"W2: {W2}")
+    print(f"b2: {b2}")
+
     M = np.zeros((num_neurons + 1, num_neurons + 1))
     F = np.zeros((num_neurons + 1, 1))
 
@@ -94,7 +98,15 @@ for idx, num_neurons in enumerate(neuron_settings):
             b2_j = b2[j - 1] if j > 0 else None
             M[i, j] = inner_product(W2_i, b2_i, W2_j, b2_j, domain, i, j)
 
-    params = np.linalg.solve(M, F)
+    L = np.linalg.cholesky(M)
+    y = np.linalg.solve(L, F)        # Solve L y = F
+    params = np.linalg.solve(L.T, y) # Solve Lᵀ x = y ⇒ x = params
+
+
+    print(f"M: {M}")
+    print(f"F: {F}")
+    print(f"Params: {params}")
+
     b3 = params[0:1]
     W3 = params[1:]
 
