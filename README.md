@@ -41,7 +41,7 @@ Minimizing the energy $I(c)=A-2c^\top F + c^\top M c$ gives the normal equations
 3. **SVD** pseudo-inverse fallback.
 
 Optionally, optimise inner parameters $(W,B)$ via the reduced objective
-$J^\*(W,B)=A - F^\top M^{-1}F$ with a single **BFGS** step per outer iteration.
+$I^\*(W,B)=A - F^\top M^{-1}F$ with a single **BFGS** step per outer iteration.
 
 ## Repository layout
 
