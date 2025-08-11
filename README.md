@@ -6,8 +6,7 @@ We study the Poisson model problem on the unit right triangle
 
 $$
 -\Delta u(x) = f(x)\ \text{in }\Omega,\qquad 
-u=0\ \text{on }\partial\Omega,\qquad
-\Omega=\{(x,y): x\ge0,\ y\ge0,\ x+y\le 1\}.
+u=0\ \text{on }\partial\Omega.
 $$
 
 ## Network parameterisation
