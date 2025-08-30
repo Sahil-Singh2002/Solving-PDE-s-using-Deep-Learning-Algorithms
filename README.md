@@ -5,7 +5,9 @@ This repo explores a **non-quadrature, closed-form** approach to fitting 2D vari
 We study the Poisson model problem on the unit right triangle
 
 $$
--\Delta u(x) = f(x)\ \text{in }\Omega,\qquad 
+-\Delta u(x) = f(x)\ \text{in }\Omega,
+$$
+$$
 u=0\ \text{on }\partial\Omega.
 $$
 
@@ -22,13 +24,13 @@ The target $f$ can also be a Heaviside indicator $f(x)=\mathbf 1_{\{w_f^\top x\g
 
 ## Closed-form assembly
 
-Let $H_i=\{x:\,w_i^\top x\ge b_i\}$ and $H_f=\{x:\,w_f^\top x\ge b_f\}$.
+Let $H_i=\{x:\,w_i^\top x\ge b_i\}$ and $H_j=\{x:\,w_j^\top x\ge b_j\}$.
 The least-squares energy reduces to areas
 
 $$
 M_{ij} = \int_{\Omega \cap H_i \cap H_j}dx,\qquad
-F_i    = \int_{\Omega \cap H_i \cap H_f}dx,\qquad
-A      = \int_{\Omega \cap H_f}dx\quad(\text{since }\mathbf 1^2=\mathbf 1).
+F_i    = \int_{\Omega \cap H_i }dx,\qquad
+A      = \int_{\Omega}dx\quad(\text{since }\mathbf 1^2=\mathbf 1).
 $$
 
 Minimizing the energy $I(c)=A-2c^\top F + c^\top M c$ gives the normal equations $Mc=F$, for the inner parameters.
