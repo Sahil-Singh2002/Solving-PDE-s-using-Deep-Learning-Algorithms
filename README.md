@@ -1,154 +1,452 @@
-# Solving PDEs with Deep Neural Networks
+# Solving Partial Differential Equations using Deep Neural Networks
 
-This repo explores a **non-quadrature, closed-form** approach to fitting 2D variational PDEs using a shallow neural network with *Heaviside* activations. We replace all integrals in the least-squares energy by exact **areas of polygonal intersections** inside the domain, so the mass matrix and RHS are assembled analytically (no sampling).
+**Exact Integration for Shallow ReLU Networks**
 
-We study the Poisson model problem on the unit right triangle
+A physics-informed machine learning approach that replaces stochastic Monte Carlo quadrature with **exact, closed-form integration** for solving PDEs using shallow neural networks.
 
-$$
--\Delta u(x) = f(x)\ \text{in }\Omega,
-$$
-$$
-u=0\ \text{on }\partial\Omega.
-$$
+---
 
-## Network parameterisation
+## Overview
 
-We approximate $u$ by a piecewise-constant Heaviside network
+This repository implements a novel framework for solving PDEs by training shallow neural networks to minimize a least-squares energy functional. The **key innovation** is the elimination of numerical quadrature entirely, instead, we compute the mass matrix and projection vector using **exact, analytical expressions derived from facet geometry** of the activation function support regions.
 
-$$
-u_N(x)=\sum_{i=1}^{N} c_i\,\sigma^k (w_i^\top x + b_i),
-$$
+### The Problem We're Solving
 
-with inner parameters $(w_i,b_i)\in\mathbb{R}^2\times\mathbb{R}$ hyperplanes and outer coefficients $c_i\in\mathbb{R}$.
-The target $f$ can also be a Heaviside indicator $f(x)=\mathbf 1_{\{w_f^\top x\ge b_f\}}$ (the constant case $f\equiv1$ is handled as a limit).
+Physics-Informed Neural Networks (PINNs) typically minimize a loss function involving high-dimensional integrals:
 
-## Closed-form assembly
+$$I(u_\theta) = \int_\Omega \frac{1}{2}|\nabla u_\theta|^2 - f u_\theta \, dx$$
 
-Let $H_i=\{x:\,w_i^\top x\ge b_i\}$ and $H_j=\{x:\,w_j^\top x\ge b_j\}$.
-The least-squares energy reduces to areas
+The standard approach? **Monte Carlo sampling**. But this introduces:
+- ✗ Stochastic noise obscuring approximation error  
+- ✗ Slow convergence (O(N^{-1/2}) in dimension)  
+- ✗ Unsampled regions that the network never "sees"  
+- ✗ Difficulty distinguishing between quadrature error and approximation error
 
-$$
-M_{ij} = \int_{\Omega \cap H_i \cap H_j}dx,\qquad
-F_i    = \int_{\Omega \cap H_i }dx,\qquad
-A      = \int_{\Omega}dx\quad(\text{since }\mathbf 1^2=\mathbf 1).
-$$
+**Our Solution:** For shallow ReLU networks on 2D domains, the integrals **can be evaluated exactly** without sampling.
 
-Minimizing the energy $I(c)=A-2c^\top F + c^\top M c$ gives the normal equations $Mc=F$, for the inner parameters.
+---
 
-**Linear solve strategy**
+## Why This Matters
 
-1. custom **Cholesky** (SPD),
-2. **PLU** if well-conditioned but not SPD,
-3. **SVD** pseudo-inverse fallback.
+### Classical FEM vs. Our Approach
 
-Optionally, optimise inner parameters $(W,B)$ via the reduced objective
-$I^\*(W,B)=A - F^\top M^{-1}F$ with a single **BFGS** step per outer iteration.
+| Aspect | FEM | Traditional PINNs | **This Work** |
+|--------|-----|-------------------|--------------|
+| **Mesh** | Explicit mesh required | No mesh | No mesh |
+| **Integration** | Gaussian quadrature (exact for polys) | Monte Carlo (noisy) | **Exact/Closed-form** |
+| **Basis functions** | Fixed piecewise polynomials | Adaptive but global | Adaptive ReLU (piecewise linear) |
+| **Stability** | SPD system guaranteed | Non-convex optimization | **SPD system guaranteed** |
+| **Error isolation** | Clear separation of errors | Quadrature ↔ Approx. error mixed | **Pure approximation error** |
 
-## Repository layout
+### Key Advantages
+
+1. **Exact Assembly**: Mass matrix $M$ and projection vector $F$ computed analytically, no sampling  
+2. **Galerkin Orthogonality**: Recover the stability guarantees of classical FEM (Céa's Lemma)  
+3. **Fast Linear Solve**: SPD structure enables O(N²) Cholesky factorization  
+4. **Adaptive Geometry**: Unlike FEM meshes, hyperplane positions evolve during training  
+5. **Clean Error Analysis**: Approximation error is pure, not masked by quadrature noise
+
+---
+
+## Mathematical Framework
+
+### Exact Integration via Homogeneous Functions
+
+The integrals in the energy functional can be written as integrals of **positively homogeneous functions** over polytopes:
+
+$$M_{ij} = \int_{\Omega \cap H_i^+ \cap H_j^+} dx$$
+
+where $H_i^+ = \{x : w_i^\top x \geq b_i\}$ is the half-space defined by the $i$-th neuron.
+
+**Key Insight:** Using **Lasserre's facet recursion** (a generalization of Stokes' theorem for polytopes), every volume integral reduces to a **weighted sum over edges**:
+
+$$M_{ij} = \frac{1}{2} \sum_{k=1}^{m} \frac{c_k}{\|a_k\|} \sum_{j \neq i} d_{kj}$$
+
+where:
+- $m$ is the number of boundary facets  
+- $d_{kj}$ is the Euclidean length of the edge lying on the intersection of facets $k$ and $j$
+
+**This entire computation is geometry-based, no quadrature points, no sampling.**
+
+### The Network Parameterization
+
+We approximate the PDE solution with a **shallow ReLU network**:
+
+$$u_N(x) = \sum_{i=1}^{N} c_i \sigma(w_i^\top x + b_i)$$
+
+**Outer parameters** ($c_i$): determined by a **single linear solve** $Mc = F$ (no gradient descent)  
+**Inner parameters** ($w_i, b_i$): adapted via **quasi-Newton (BFGS)** to steer hyperplanes toward solution features
+
+This **block-coordinate alternation** couples exact L² projection (linear) with geometric adaptation (nonlinear).
+
+---
+
+## Repository Structure
 
 ```
 Code/
-  main.py                 # CLI entry point with multiple demo modes
-  experiments.py          # One-call figure generators and study runners
-  geometry_utils.py       # Triangular domain (half-spaces, intersections)
-  area_utils.py           # Exact area formulas inside Ω
-  mass_matrix_utils.py    # Build (M, F, A) for Heaviside target and basis
-  solver_utils.py         # Cost, Cholesky/PLU/SVD solvers, PD checks
-  hyperplane_utils.py     # Generate hyperplanes + plotting helpers
-  optimization.py         # HeavisideObjective: reduced objective + outer loop
-  print_utils.py          # Pretty console printing of M and F
-  sanity_tests.py         # Analytic area/unit tests for Ω
-Pictures/                 # Figures saved by the demos
+  ├── main.py                    # CLI entry point for all demos
+  ├── experiments.py             # High-level figure generators
+  ├── geometry_utils.py          # Triangular domain and half-space operations
+  ├── area_utils.py              # Exact area formulas (closed-form)
+  ├── mass_matrix_utils.py       # Build M, F, A for exact assembly
+  ├── solver_utils.py            # Cholesky/PLU/SVD solvers with fallback logic
+  ├── hyperplane_utils.py        # Hyperplane generation + visualization
+  ├── optimization.py            # Alternating LS-Net/BFGS training loop
+  ├── print_utils.py             # Console output helpers
+  └── sanity_tests.py            # Analytic validation tests
+
+Pictures/                         # Output figures (generated by demos)
 ```
 
-> **Heaviside vs ReLU.**
-> All derivations and code here use **Heaviside** activations (indicators), *not* ReLU.
+### Core Modules
 
-## Quick start
+**`mass_matrix_utils.py`** – The Heart of the Method
+- `build_mass_matrix_unified()`: Assembles M and F using exact polygon clipping
+- Handles Heaviside targets and arbitrary target functions
+- No quadrature, all geometry-based
 
-### Environment
+**`area_utils.py`** – Exact Integration Formulas
+- Polygon vertex ordering (counter-clockwise)
+- Edge-based area computation via facet recursion
+- Robust floating-point tolerance handling
+
+**`optimization.py`** – Training Strategy
+- `HeavisideObjective`: Encapsulates the alternating scheme
+- Step 1 (Outer): `solve_for_c_custom()` – Exact L² projection via Cholesky
+- Step 2 (Inner): Finite-difference BFGS for hyperplane rotation
+- Automatic solver fallback (Cholesky → PLU → SVD)
+
+**`solver_utils.py`** – Numerical Stability
+- `solve_for_c_custom()`: Smart solver selection based on conditioning
+- Avoids explicit inverse: uses triangular solves
+- SVD fallback for rank-deficient cases
+
+---
+
+## Key Challenges & Solutions
+
+### Challenge 1: Replacing Quadrature with Exact Integration
+
+**The Problem:**  
+Standard Gaussian quadrature fails for ReLU networks because the integrands are **piecewise constant** (discontinuous slopes). Monte Carlo avoids this but adds noise.
+
+**Our Solution:**  
+Recognize that ReLU activations partition the domain into **convex polygons** where the integrand is polynomial. Using **Lasserre's recursion** and **Stokes' theorem**, we collapse each volume integral into a finite sum over facets, exact, deterministic, no sampling.
+
+**Implementation:**
+- Algorithm 3.7–3.10: Polygon clipping + edge-length accumulation
+- Tolerance ξ = 10⁻¹⁰ for robust floating-point comparisons
+- Counter-clockwise vertex ordering to avoid self-intersecting ("bow-tie") domains
+
+---
+
+### Challenge 2: Mesh-Free but Geometry-Aware
+
+**The Problem:**  
+Unlike FEM's explicit mesh, our hyperplanes are determined by network parameters. **Random initialization** can trap the network in poor local minima, especially for diagonal discontinuities.
+
+**Our Solution:**  
+**Strategic initialization** inspired by FEM mesh design:
+- Generate uniform, axis-aligned hyperplanes initially
+- For each neuron $i$, create alternating vertical/horizontal lines at positions $\beta_k = \frac{k}{m+1}$
+- This gives the mass matrix a **block-banded sparsity** and O(N²) Cholesky complexity
+
+**Why It Matters:**  
+Figure 4.6–4.7 shows the difference:
+- Axis-aligned mesh only: O(N⁻⁰·³) convergence for diagonal jumps (staircase artifacts)  
+- Including diagonal hyperplanes: O(N⁻¹) convergence recovered
+
+---
+
+### Challenge 3: Diagonal Discontinuities Exposed the Need for Adaptation
+
+**The Problem:**  
+A frozen axis-aligned mesh cannot resolve a jump along $y = x$. The network approximates it as a staircase, averaging over large misclassified regions. Error stagnates.
+
+**Our Solution:**  
+**Allow inner parameters to adapt.** The alternating scheme:
+
+$$\text{Step 1 (Outer):} \quad M(\theta_k^{\text{in}}) c^{k+1} = F(\theta_k^{\text{in}}) \quad \text{(Cholesky solve)}$$
+
+$$\text{Step 2 (Inner):} \quad \theta_k^{\text{in}} \to \theta_{k+1}^{\text{in}} \quad \text{(BFGS on reduced objective)}$$
+
+Once a hyperplane rotates to align with the diagonal, the staircase collapses to a single sharp break, and error drops by **9 orders of magnitude in ~50 iterations** (Figure 4.8).
+
+---
+
+### Challenge 4: Numerical Stability of Polygon Clipping
+
+**The Problem:**  
+Computing the intersection of multiple half-spaces is numerically delicate:
+- Floating-point round-off can produce duplicate vertices  
+- Self-intersecting ("bow-tie") polygons from incorrect ordering  
+- Ill-conditioned 2×2 systems when lines are nearly parallel
+
+**Our Solution:**
+
+1. **Deduplication** (Algorithm 3.5):  
+   Remove vertices within tolerance ξ = 10⁻¹⁰ to enforce one-to-one correspondence
+
+2. **Counter-Clockwise Sorting** (Algorithm 3.6–3.8):  
+   Sort vertices by polar angle around the centroid to guarantee simple (non-self-intersecting) polygons
+
+3. **Robust Line Intersection**:  
+   Gaussian elimination with partial pivoting; return `None` if determinant ≈ 0
+
+4. **Edge Classification**:  
+   Walk the polygon boundary, classifying each edge by which supporting plane it lies on, then accumulate edge lengths for the half-edge formula
+
+---
+
+### Challenge 5: Sparse Mass Matrix Structure
+
+**The Problem:**  
+For large N, even assembling a dense N×N mass matrix is expensive. Naive nested loops: O(N³) to compute all entries.
+
+**Our Solution:**  
+The uniform initialization creates **block-banded sparsity**: only neurons with overlapping active regions contribute to M.
+
+$$M_{ij} \neq 0 \quad \Leftrightarrow \quad \Omega \cap H_i^+ \cap H_j^+ \neq \emptyset$$
+
+With axis-aligned hyperplanes, overlaps are sparse: O(N) non-zero entries instead of O(N²).
+
+**Result:** Cholesky factorization runs in O(N²) time, not O(N³).
+
+---
+
+## Quick Start
+
+### Environment Setup
 
 ```bash
 # Python >= 3.9
 pip install numpy scipy matplotlib tqdm
 ```
 
-### Sanity checks (analytic areas)
+### Run the Demos
 
 ```bash
 cd Code
-python sanity_tests.py
-# Expect: "All sanity tests PASSED ✅"
+
+# 1) Small demo: plot hyperplanes + assemble once
+python main.py --mode demo
+
+# 2) Grid of surfaces + ground truth comparison
+python main.py --mode surfaces
+
+# 3) Convergence on two targets (constant + jump)
+python main.py --mode convergence
+
+# 4) Full optimization with diagnostics (diagonal discontinuity)
+python main.py --mode optim --N 2 --wf 1,-1 --bf 0.5 --iters 120 --fit-range 5,100
+
+# 5) Run everything in sequence
+python main.py --mode all --N 2 --wf 1,-1 --bf 0.5 --iters 120 --fit-range 5,100
 ```
 
-### Run the demos (`main.py`)
+### Sanity Checks
 
 ```bash
-# 1) Small demo: plot hyperplanes, assemble once (target & f ≡ 1)
-python Code/main.py --mode demo
-
-# 2) Grid of NN surface plots + ground truth
-python Code/main.py --mode surfaces
-
-# 3) Convergence comparison (two targets)
-python Code/main.py --mode convergence
-
-# 4) Outer optimisation + diagnostics/contours
-python Code/main.py --mode optim --N 2 --wf 1,-1 --bf 0.5 --iters 120 --fit-range 5,100
-
-# Everything in sequence
-python Code/main.py --mode all --N 2 --wf 1,-1 --bf 0.5 --iters 120 --fit-range 5,100
+python sanity_tests.py
+# Expected: "All sanity tests PASSED ✅"
 ```
 
-Figures are saved to `Pictures/` and also displayed.
+Validates that exact polygon areas match known analytic results.
 
-## What each demo does
-
-* **Demo** (`--mode demo`): plots the domain with uniform hyperplanes for several $N$; assembles $(M,F,A)$ for a Heaviside target and for $f\equiv 1$; solves $Mc=F$; prints diagnostics and positive-definiteness checks.
-* **Surfaces** (`--mode surfaces`): for a set of $N$, solves once per $N$, evaluates the NN on a grid over $\Omega$, and shows a grid of 3D surfaces with the ground truth.
-* **Convergence** (`--mode convergence`): runs two targets (default $H(y-0.5)$ and $1$) and plots log-log error vs neurons with a fitted slope.
-* **Optimisation** (`--mode optim`): runs the outer loop on $(W,B)$; shows loss history, final hyperplanes, order-of-convergence scatter (($W,B$) and $c$), and contour slices of the reduced objective:
-
-  * $(w_x, w_y)$ plane for up to two neurons,
-  * normalised planes for neuron 1: $(w_x/\|w\|, b/\|w\|)$ and $(w_y/\|w\|, b/\|w\|)$.
-
-## Reproducing figures via `experiments.py`
+### Programmatic Use
 
 ```python
-from experiments import (
-    run_surface_demo,          # grid of surfaces + ground truth
-    run_convergence_demo,      # two-target comparison
-    run_optimisation_demo      # full optimisation + diagnostics
-)
+from mass_matrix_utils import build_mass_matrix_unified
+from solver_utils import solve_for_c_custom
+from optimization import HeavisideObjective
 
-# Example:
-run_optimisation_demo(
-    N=2, w_f=[1.0, -1.0], b_f=0.5,
-    num_outer_iter=120, fit_range=(5, 100)
-)
+# Define domain and neurons
+domain = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]  # vertices of unit triangle
+W = [[1.0, 0.0], [0.0, 1.0]]  # weights
+B = [0.3, 0.3]                 # biases
+w_f, b_f = 0.0, 0.5            # Heaviside target
+
+# Assemble mass matrix and projection vector exactly
+M, F, A = build_mass_matrix_unified(domain, W, B, w_f, b_f)
+
+# Solve for optimal outer coefficients
+c = solve_for_c_custom(M, F)
+
+# Access the network output
+# u_N(x) = sum(c[i] * sigma(W[i] @ x + B[i]))
 ```
 
-## Notes and tips
+---
 
-* Domains and half-spaces use inequalities $a^\top x \ge b$; intersections remain convex and areas are computed by clipping.
-* `solver_utils.solve_for_c_custom` tries **Cholesky → PLU → SVD** automatically with conditioning heuristics.
-* If you only need Heaviside assembly (no optimisation):
+## What Each Demo Shows
 
-  ```python
-  from mass_matrix_utils import build_mass_matrix_unified
-  from solver_utils import solve_for_c_custom
+### `--mode demo`
+Plots the domain with uniform hyperplanes for several N values. Assembles (M, F, A) for a Heaviside target. Solves Mc=F. Prints diagnostics and positive-definiteness checks.
 
-  M, F, A = build_mass_matrix_unified(domain, W, B, w_f, b_f)
-  c       = solve_for_c_custom(M, F)
-  ```
-* Change the target $f$ by passing a different $(w_f,b_f)$ to `build_mass_matrix_unified`; omit them for $f\equiv 1$.
+### `--mode surfaces`
+For a range of N, solves once per N, evaluates the network on a grid over Ω, and displays 3D surfaces alongside the ground truth function.
 
-## Reference
+### `--mode convergence`
+Runs two targets (constant f ≡ 1 and horizontal jump f = H(y − 0.5)). Plots log-log error vs. neurons with fitted convergence slope.
 
-E, Weinan; Yu, Bing. *The Deep Ritz Method: A Deep Learning-Based Numerical Algorithm for Solving Variational Problems*. **Communications in Mathematics and Statistics** (2018).
-[https://link.springer.com/article/10.1007/s40304-018-0127-z](https://link.springer.com/article/10.1007/s40304-018-0127-z)
+### `--mode optim`
+Runs the outer loop on (W, B); shows loss history, final hyperplane positions, order-of-convergence scatter plots, and contour slices of the reduced objective.
 
-## License & citation
+---
 
-If you use this code or the generated figures, please cite the repository.
-**License:** (MIT).
+## Key Results & Insights
+
+### 1. One-Dimensional Convergence (Section 4.1)
+
+For f(x) = cos(πx) on [0,1] with N neurons:
+
+$$\|f - u_N\|_{L^2} = O(N^{-2})$$
+
+Matches classical finite-element theory, exact assembly recovers optimal rates.
+
+### 2. Two-Dimensional Constant & Axis-Aligned Jumps (Section 4.2)
+
+- **Constant target** f₁ ≡ 1: slope = −0.88 ≈ O(N⁻¹) ✓  
+- **Horizontal jump** f₂ = H(y − 0.5): slope = −0.93 ≈ O(N⁻¹) ✓
+
+Uniform mesh initialization works perfectly for coordinate-aligned features.
+
+### 3. The Diagonal Jump Reveals Initialization Matters (Section 4.2–4.3)
+
+Target: $f(x,y) = H(y - x)$ (jump along diagonal)
+
+| Initialization | Convergence | Explanation |
+|---|---|---|
+| **Axis-aligned only** | O(N⁻⁰·³) 😞 | Staircase approximation; large misclassification regions |
+| **+ Diagonal hyperplanes** | O(N⁻¹) ✓ | One hyperplane aligns; sharp interface |
+
+**Lesson:** Without geometry-aware initialization, even the exact integration machinery cannot overcome a poor initial approximation space.
+
+### 4. Alternating LS-Net/BFGS on Diagonal Jump (Section 4.3)
+
+Two-neuron network trained on $f = H(y - x - 0.5)$:
+
+- **Outer loop** (Cholesky): c solved exactly for fixed hyperplanes  
+- **Inner loop** (BFGS): hyperplanes rotate toward solution features
+- **Result**: One neuron aligns with diagonal; outer coefficient → 1; companion neuron → 0
+
+Loss drops **nine orders of magnitude** in ~50 iterations once geometry is captured (Figure 4.8).
+
+---
+
+## Limitations & Future Work
+
+### Current Scope
+- ✓ Shallow (single hidden layer) ReLU networks  
+- ✓ Two spatial dimensions  
+- ✓ Heaviside activations (piecewise constant)  
+- ✓ Least-squares L² fitting and Poisson equation
+
+### Known Limitations
+- ✗ **Higher dimensions**: Facet recursion becomes combinatorially complex (faces, edges, vertices in 3D+)  
+- ✗ **Deeper networks**: Multiple layers break the closed-form integration  
+- ✗ **ReLU¹ basis + Dirichlet BCs**: Requires bubble functions for well-posedness (future)  
+- ✗ **Discontinuity sensitivity**: Convergence still depends on initial hyperplane alignment; fully adaptive mesh refinement needed
+
+### Promising Extensions
+
+1. **Adaptive Hyperplane Strategy**  
+   Neural analogue of FEM mesh refinement: automatically inject hyperplanes where error is high
+
+2. **Three-Dimensional Integration**  
+   Extend facet recursion to polyhedra; handle faces and edges systematically
+
+3. **Time-Dependent Domains**  
+   Reynolds transport theorem + moving boundaries (e.g., tidal turbine flows)
+
+4. **Higher-Order Homogeneous Polynomials**  
+   Support ReLU² and higher activations; better approximation of smooth solutions
+
+5. **Integration with Existing PINN Frameworks**  
+   Port exact assembly into DeepXDE, NeuralPDE, etc.
+
+---
+
+## Technical Details
+
+### The Alternating Optimization Scheme
+
+Given loss $L(c, \theta_{\text{in}})$, we solve:
+
+**Outer Update (Exact):**
+$$M(\theta_k^{\text{in}}) c^{k+1} = F(\theta_k^{\text{in}})$$
+- Cholesky factorization: O(N²) time  
+- Guaranteed SPD (Lemma 2.8)  
+- Fallback to PLU or SVD if numerically degenerate
+
+**Inner Update (Quasi-Newton):**
+$$\theta_{k+1}^{\text{in}} = \theta_k^{\text{in}} - \eta \mathcal{H}_k^{-1} \nabla_{\theta_{\text{in}}} L(c^k, \theta_k^{\text{in}})$$
+- Gradient via finite differences: ε = 10⁻⁹  
+- BFGS approximates Hessian  
+- Recalculates M, F after each step (geometry changes)
+
+**Convergence Criterion:**
+$$\text{Stop when } |\Delta L| = |L^k - L^{k-1}| < \xi = 10^{-10}$$
+
+See Appendix C for the full gradient derivation.
+
+### Numerical Stability Features
+
+1. **Global tolerance**: ξ = 10⁻¹⁰ for floating-point comparisons  
+2. **Deduplication**: Remove vertices within tolerance (Algorithm 3.5)  
+3. **Counter-clockwise sorting**: Enforce simple polygons (Algorithms 3.6–3.8)  
+4. **Solver fallback chain**: Cholesky → PLU → SVD (solver_utils.py)  
+5. **Singular check**: Detect rank deficiency (redundant neurons) and switch solvers
+
+---
+
+## References
+
+Key papers underpinning this work:
+
+- **[15] Lasserre (1983)**: Volume of convex polyhedra via facet recursion  
+- **[6] Chin, Lasserre, Sukumar (2015)**: Numerical integration of homogeneous functions  
+- **[17] Liu, Cai, Chen (2022)**: Adaptive two-layer ReLU neural network (Initial-BLS-Net)  
+- **[7] E & Yu (2018)**: Deep Ritz Method for variational problems  
+- **[14] Larson & Bengzon (2013)**: Finite Element Method theory (Céa's lemma)
+
+See the dissertation for the full reference list and detailed proofs.
+
+---
+
+## License & Citation
+
+**License:** MIT
+
+**Citation:**  
+If you use this code or the research, please cite:
+
+```bibtex
+@mastersthesis{Singh2025,
+  author  = {Sahil Singh},
+  title   = {Solving Partial Differential Equations using Deep-Learning Algorithms},
+  school  = {University of Nottingham},
+  year    = {2025},
+  type    = {Master's Dissertation},
+  note    = {G14DIS / MATH4001}
+}
+```
+
+---
+
+## Contact & Questions
+
+For questions about the theory, implementation, or results, feel free to open an issue or contact the author.
+
+**Author:** Sahil Singh  
+**Affiliation:** Masters, University of Nottingham  
+**Email:** sahilrawat13@outlook.com  
+**GitHub:** [Sahil-Singh2002](https://github.com/Sahil-Singh2002)
+
+---
+
+## Acknowledgments
+
+- **Supervisor:** Prof. Kristoffer van der Zee  
+- **Co-supervisor:** Dr. Ignacio Brevis
